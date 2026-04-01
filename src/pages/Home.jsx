@@ -62,6 +62,7 @@ export default function Home({ embedded = false, manageOnly = false }) {
   const [ytLoading, setYtLoading] = useState(false);
   const [playlistPicker, setPlaylistPicker] = useState(null); // { groupId, channelId, channelName, playlists, loading, selected, keywords, videoType }
   const [globalVideoType, setGlobalVideoType] = useState('all'); // feed-level filter: 'all' | 'shorts' | 'long'
+  const [searchQuery, setSearchQuery] = useState(''); // keyword search across video titles
   const [sortOrder, setSortOrder] = useState('newest'); // 'newest' | 'oldest'
   const [dateRange, setDateRange] = useState(''); // '' | '1w' | '1m' | '3m'
 
@@ -323,6 +324,14 @@ export default function Home({ embedded = false, manageOnly = false }) {
       result = result.filter(v => v.durationSeconds > 60);
     }
 
+    // Keyword search filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      result = result.filter(v =>
+        v.title.toLowerCase().includes(q) || v.channel?.toLowerCase().includes(q)
+      );
+    }
+
     // Date range filter
     if (dateRange) {
       const now = new Date();
@@ -332,8 +341,11 @@ export default function Home({ embedded = false, manageOnly = false }) {
       result = result.filter(v => v.publishedAt && v.publishedAt >= cutoff);
     }
 
-    // Sort
+    // Sort: longform first, then by date
     result.sort((a, b) => {
+      const aIsLong = a.durationSeconds > 60 ? 0 : 1;
+      const bIsLong = b.durationSeconds > 60 ? 0 : 1;
+      if (aIsLong !== bIsLong) return aIsLong - bIsLong;
       if (!a.publishedAt || !b.publishedAt) return 0;
       return sortOrder === 'newest'
         ? new Date(b.publishedAt) - new Date(a.publishedAt)
@@ -637,7 +649,25 @@ export default function Home({ embedded = false, manageOnly = false }) {
             </button>
           ))}
         </div>
+        <div className="feed-search-row">
+          <input
+            type="text"
+            className="feed-search-input"
+            placeholder="키워드로 영상 검색..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+        </div>
         <div className="feed-filter-row">
+          <select
+            className="feed-select"
+            value={globalVideoType}
+            onChange={e => setGlobalVideoType(e.target.value)}
+          >
+            <option value="all">전체 유형</option>
+            <option value="long">롱폼만</option>
+            <option value="shorts">쇼츠만</option>
+          </select>
           <select
             className="feed-select"
             value={dateRange}
@@ -647,15 +677,6 @@ export default function Home({ embedded = false, manageOnly = false }) {
             <option value="1w">최근 1주일</option>
             <option value="1m">최근 1개월</option>
             <option value="3m">최근 3개월</option>
-          </select>
-          <select
-            className="feed-select"
-            value={globalVideoType}
-            onChange={e => setGlobalVideoType(e.target.value)}
-          >
-            <option value="all">전체 유형</option>
-            <option value="shorts">쇼츠만</option>
-            <option value="long">롱폼만</option>
           </select>
           <select
             className="feed-select"

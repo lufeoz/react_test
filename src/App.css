@@ -736,6 +736,30 @@
 }
 
 
+.feed-search-row {
+  margin-bottom: 8px;
+}
+
+.feed-search-input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.feed-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.feed-search-input::placeholder {
+  color: var(--text-muted);
+}
+
 .feed-filter-row {
   display: flex;
   gap: 8px;

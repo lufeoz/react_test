@@ -60,7 +60,8 @@ export default function Home({ embedded = false, manageOnly = false }) {
   const [newChannelName, setNewChannelName] = useState('');
   const [ytVideos, setYtVideos] = useState({});  // { channelName: [videos] }
   const [ytLoading, setYtLoading] = useState(false);
-  const [playlistPicker, setPlaylistPicker] = useState(null); // { groupId, channelId, channelName, playlists, loading }
+  const [playlistPicker, setPlaylistPicker] = useState(null); // { groupId, channelId, channelName, playlists, loading, selected, keywords, videoType }
+  const [globalVideoType, setGlobalVideoType] = useState('all'); // feed-level filter: 'all' | 'shorts' | 'long'
   const [sortOrder, setSortOrder] = useState('newest'); // 'newest' | 'oldest'
   const [dateRange, setDateRange] = useState(''); // '' | '1w' | '1m' | '3m'
 
@@ -119,9 +120,14 @@ export default function Home({ embedded = false, manageOnly = false }) {
     fetchYouTubeVideos(feeds);
   }, [feeds, fetchYouTubeVideos]);
 
-  // Open playlist picker for a channel
+  // Open playlist picker for a channel (includes keyword & video type filters)
   const openPlaylistPicker = async (groupId, channel) => {
-    setPlaylistPicker({ groupId, channelId: channel.id, channelName: channel.name, playlists: [], loading: true, selected: channel.playlists || [] });
+    setPlaylistPicker({
+      groupId, channelId: channel.id, channelName: channel.name,
+      playlists: [], loading: true, selected: channel.playlists || [],
+      keywords: (channel.keywords || []).join(', '),
+      videoType: channel.videoType || 'all',
+    });
     const playlists = await fetchPlaylistsByChannelName(channel.name);
     setPlaylistPicker(prev => prev ? { ...prev, playlists, loading: false } : null);
   };
@@ -137,23 +143,27 @@ export default function Home({ embedded = false, manageOnly = false }) {
     });
   };
 
-  // Save selected playlists to the channel
+  // Save playlists + keywords + video type together
   const savePlaylistSelection = () => {
     if (!playlistPicker) return;
-    const { groupId, channelId, selected } = playlistPicker;
+    const { groupId, channelId, selected, keywords, videoType } = playlistPicker;
+    const parsedKeywords = keywords.split(',').map(k => k.trim()).filter(Boolean);
     const updated = feeds.map(f => {
       if (f.id !== groupId) return f;
       return {
         ...f,
         channels: f.channels.map(c =>
-          c.id === channelId ? { ...c, playlists: selected } : c
+          c.id === channelId ? { ...c, playlists: selected, keywords: parsedKeywords, videoType } : c
         ),
       };
     });
     saveFeeds(updated);
     setPlaylistPicker(null);
-    setViewMode('feed');
-    toast(selected.length > 0 ? `재생목록 ${selected.length}개 선택됨` : '전체 최신 영상으로 설정됨');
+    const parts = [];
+    if (selected.length > 0) parts.push(`재생목록 ${selected.length}개`);
+    if (parsedKeywords.length > 0) parts.push(`키워드 ${parsedKeywords.length}개`);
+    if (videoType !== 'all') parts.push(videoType === 'shorts' ? '쇼츠만' : '롱폼만');
+    toast(parts.length > 0 ? `필터 적용: ${parts.join(', ')}` : '전체 최신 영상으로 설정됨');
   };
 
   const saveFeeds = (updated) => {
@@ -284,12 +294,34 @@ export default function Home({ embedded = false, manageOnly = false }) {
     let result = targetFeeds.flatMap(feed =>
       feed.channels
         .filter(c => c.active && c.platform === 'YouTube')
-        .flatMap(c => (ytVideos[c.name] || []).map(v => ({
-          ...v,
-          group: feed.name,
-          groupIcon: feed.icon,
-        })))
+        .flatMap(c => {
+          let vids = (ytVideos[c.name] || []).map(v => ({
+            ...v,
+            group: feed.name,
+            groupIcon: feed.icon,
+          }));
+          // Keyword filter
+          if (c.keywords?.length > 0) {
+            vids = vids.filter(v =>
+              c.keywords.some(kw => v.title.toLowerCase().includes(kw.toLowerCase()))
+            );
+          }
+          // Video type filter (shorts: ≤60s, long: >60s)
+          if (c.videoType === 'shorts') {
+            vids = vids.filter(v => v.durationSeconds > 0 && v.durationSeconds <= 60);
+          } else if (c.videoType === 'long') {
+            vids = vids.filter(v => v.durationSeconds > 60);
+          }
+          return vids;
+        })
     );
+
+    // Global video type filter (from feed toolbar)
+    if (globalVideoType === 'shorts') {
+      result = result.filter(v => v.durationSeconds > 0 && v.durationSeconds <= 60);
+    } else if (globalVideoType === 'long') {
+      result = result.filter(v => v.durationSeconds > 60);
+    }
 
     // Date range filter
     if (dateRange) {
@@ -401,13 +433,19 @@ export default function Home({ embedded = false, manageOnly = false }) {
                       {ch.playlists?.length > 0 && (
                         <span className="channel-playlist-badge">{ch.playlists.length}개 목록만</span>
                       )}
+                      {ch.keywords?.length > 0 && (
+                        <span className="channel-playlist-badge">🔍 {ch.keywords.length}개 키워드</span>
+                      )}
+                      {ch.videoType && ch.videoType !== 'all' && (
+                        <span className="channel-playlist-badge">{ch.videoType === 'shorts' ? '⚡ 쇼츠' : '🎬 롱폼'}</span>
+                      )}
                     </div>
                     <div className="channel-actions">
                       {hasApiKey() && (
                         <button
                           className="btn-playlist"
                           onClick={(e) => { e.stopPropagation(); openPlaylistPicker(feed.id, ch); }}
-                          title="재생목록 필터"
+                          title="채널 필터 설정"
                         >
                           필터
                         </button>
@@ -499,45 +537,74 @@ export default function Home({ embedded = false, manageOnly = false }) {
         </div>
       )}
 
-      {/* Playlist Picker Modal */}
+      {/* Channel Filter Modal (Playlists + Keywords + Video Type) */}
       {playlistPicker && (
         <div className="login-modal-overlay" onClick={() => setPlaylistPicker(null)}>
           <div className="login-modal playlist-modal" onClick={e => e.stopPropagation()}>
             <button className="login-modal-close" onClick={() => setPlaylistPicker(null)}>×</button>
-            <h2 className="login-title">재생목록 선택</h2>
-            <p className="login-reason">{playlistPicker.channelName}에서 가져올 재생목록을 선택하세요</p>
+            <h2 className="login-title">{playlistPicker.channelName} 필터</h2>
+            <p className="login-reason">재생목록, 키워드, 영상 유형을 설정하세요</p>
 
-            {playlistPicker.loading ? (
-              <div className="empty-state">
-                <p className="empty-icon">⏳</p>
-                <p className="empty-text">재생목록 불러오는 중...</p>
-              </div>
-            ) : playlistPicker.playlists.length === 0 ? (
-              <div className="empty-state">
-                <p className="empty-icon">📭</p>
-                <p className="empty-text">재생목록이 없습니다</p>
-              </div>
-            ) : (
-              <div className="playlist-list">
-                {playlistPicker.playlists.map(pl => (
-                  <label key={pl.id} className={`playlist-item ${playlistPicker.selected.includes(pl.id) ? 'selected' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={playlistPicker.selected.includes(pl.id)}
-                      onChange={() => togglePlaylist(pl.id)}
-                    />
-                    {pl.thumbnail && <img src={pl.thumbnail} alt="" className="playlist-thumb" />}
-                    <span className="playlist-title">{pl.title}</span>
-                  </label>
+            {/* Playlists */}
+            <div className="filter-section">
+              <label className="filter-label">재생목록</label>
+              {playlistPicker.loading ? (
+                <p className="filter-hint">불러오는 중...</p>
+              ) : playlistPicker.playlists.length === 0 ? (
+                <p className="filter-hint">공개 재생목록이 없습니다</p>
+              ) : (
+                <div className="playlist-list">
+                  {playlistPicker.playlists.map(pl => (
+                    <label key={pl.id} className={`playlist-item ${playlistPicker.selected.includes(pl.id) ? 'selected' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={playlistPicker.selected.includes(pl.id)}
+                        onChange={() => togglePlaylist(pl.id)}
+                      />
+                      {pl.thumbnail && <img src={pl.thumbnail} alt="" className="playlist-thumb" />}
+                      <span className="playlist-title">{pl.title}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Keywords */}
+            <div className="filter-section">
+              <label className="filter-label">키워드 필터</label>
+              <input
+                type="text"
+                className="filter-input"
+                placeholder="쉼표로 구분 (예: 리뷰, 튜토리얼, vlog)"
+                value={playlistPicker.keywords}
+                onChange={e => setPlaylistPicker(prev => prev ? { ...prev, keywords: e.target.value } : null)}
+              />
+              <p className="filter-hint">제목에 키워드가 포함된 영상만 표시됩니다</p>
+            </div>
+
+            {/* Video Type */}
+            <div className="filter-section">
+              <label className="filter-label">영상 유형</label>
+              <div className="filter-type-options">
+                {[
+                  { value: 'all', label: '전체', icon: '📺' },
+                  { value: 'shorts', label: '쇼츠', icon: '⚡' },
+                  { value: 'long', label: '롱폼', icon: '🎬' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    className={`filter-type-btn ${playlistPicker.videoType === opt.value ? 'active' : ''}`}
+                    onClick={() => setPlaylistPicker(prev => prev ? { ...prev, videoType: opt.value } : null)}
+                  >
+                    {opt.icon} {opt.label}
+                  </button>
                 ))}
               </div>
-            )}
+            </div>
 
             <div className="playlist-actions">
               <button className="login-btn" onClick={savePlaylistSelection}>
-                {playlistPicker.selected.length > 0
-                  ? `${playlistPicker.selected.length}개 선택 완료`
-                  : '선택 완료'}
+                적용
               </button>
               <button className="playlist-skip" onClick={() => { setPlaylistPicker(null); toast('전체 최신 영상으로 설정됨'); }}>
                 건너뛰기 — 전체 영상 보기
@@ -580,6 +647,15 @@ export default function Home({ embedded = false, manageOnly = false }) {
             <option value="1w">최근 1주일</option>
             <option value="1m">최근 1개월</option>
             <option value="3m">최근 3개월</option>
+          </select>
+          <select
+            className="feed-select"
+            value={globalVideoType}
+            onChange={e => setGlobalVideoType(e.target.value)}
+          >
+            <option value="all">전체 유형</option>
+            <option value="shorts">쇼츠만</option>
+            <option value="long">롱폼만</option>
           </select>
           <select
             className="feed-select"

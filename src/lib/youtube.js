@@ -121,6 +121,7 @@ export async function fetchPlaylistVideos(playlistId, maxResults = 5) {
     .filter(Boolean);
 
   let durations = {};
+  let durationSecs = {};
   if (videoIds.length > 0) {
     const detailParams = new URLSearchParams({
       part: 'contentDetails',
@@ -132,6 +133,7 @@ export async function fetchPlaylistVideos(playlistId, maxResults = 5) {
       const detailData = await detailRes.json();
       detailData.items?.forEach(item => {
         durations[item.id] = parseDuration(item.contentDetails.duration);
+        durationSecs[item.id] = parseDurationSeconds(item.contentDetails.duration);
       });
     }
   }
@@ -146,6 +148,7 @@ export async function fetchPlaylistVideos(playlistId, maxResults = 5) {
       publishedAt: item.snippet.publishedAt,
       uploaded: formatRelativeDate(item.snippet.publishedAt),
       duration: durations[item.snippet.resourceId.videoId] || '',
+      durationSeconds: durationSecs[item.snippet.resourceId.videoId] || 0,
       thumbnail: item.snippet.thumbnails?.medium?.url || '',
     }));
 
@@ -194,6 +197,12 @@ function parseDuration(iso) {
   const m = match[2] || '0';
   const s = (match[3] || '0').padStart(2, '0');
   return h ? `${h}${m.padStart(2, '0')}:${s}` : `${m}:${s}`;
+}
+
+function parseDurationSeconds(iso) {
+  const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return 0;
+  return (parseInt(match[1] || 0) * 3600) + (parseInt(match[2] || 0) * 60) + parseInt(match[3] || 0);
 }
 
 function formatRelativeDate(dateStr) {

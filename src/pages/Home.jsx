@@ -6,42 +6,7 @@ import { useLoginModal } from '../components/Login';
 import { fetchVideosByChannelName, fetchPlaylistsByChannelName, fetchPlaylistVideos, findChannelId, searchChannels, hasApiKey } from '../lib/youtube';
 
 
-const DEFAULT_FEEDS = [
-  {
-    id: 1,
-    name: '디자인',
-    icon: '🎨',
-    channels: [
-      { id: 1, name: 'Figma', platform: 'YouTube', active: true },
-      { id: 2, name: 'Dribbble Weekly', platform: 'Newsletter', active: true },
-    ],
-  },
-  {
-    id: 2,
-    name: '개발',
-    icon: '💻',
-    channels: [
-      { id: 3, name: 'Fireship', platform: 'YouTube', active: true },
-      { id: 4, name: 'Theo', platform: 'YouTube', active: true },
-    ],
-  },
-  {
-    id: 3,
-    name: '책 & 생각',
-    icon: '📚',
-    channels: [
-      { id: 5, name: '책 읽는 밤', platform: 'YouTube', active: true },
-    ],
-  },
-  {
-    id: 4,
-    name: '친구',
-    icon: '👥',
-    channels: [
-      { id: 6, name: '가까운 친구 8명', platform: 'Instagram', active: true },
-    ],
-  },
-];
+const DEFAULT_FEEDS = [];
 
 export default function Home({ embedded = false, manageOnly = false }) {
   const toast = useToast();

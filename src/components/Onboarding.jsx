@@ -108,6 +108,7 @@ export default function Onboarding({ onComplete }) {
       await supabase.from('profiles').update({
         onboarding_done: true,
       }).eq('id', user.id);
+      localStorage.setItem('onboarding_done', 'true');
 
       onComplete();
     } catch {

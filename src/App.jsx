@@ -25,7 +25,8 @@ function AppContent() {
   }, []);
 
   // Show onboarding only for logged-in users who haven't completed it
-  if (!loading && profile && !profile.onboarding_done) {
+  const onboardingDone = profile?.onboarding_done || localStorage.getItem('onboarding_done') === 'true';
+  if (!loading && profile && !onboardingDone) {
     return <Onboarding onComplete={() => window.location.reload()} />;
   }
 

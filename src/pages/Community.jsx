@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useToast } from '../components/Toast';
 import { FeedSkeleton, CardListSkeleton } from '../components/Skeleton';
 import PullToRefresh from '../components/PullToRefresh';
-import { usePosts, useReactions, useChallenges } from '../hooks/useSupabase';
+import { usePosts, useChallenges } from '../hooks/useSupabase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLoginModal } from '../components/Login';
 
@@ -100,31 +100,28 @@ const MOCK_POSTS = [
   },
 ];
 
-// Mock challenges
+// Challenges with Polar checkout links
 const CHALLENGES = [
   {
     id: 'c1', name: '7일 저녁 루틴 챌린지', icon: '🌙',
     desc: '매일 저녁 3시간, 쇼츠 대신 진짜 쉼',
-    members: 1247, duration: 7, price: null,
-    tags: ['무료', '초보 추천'],
+    members: 1247, duration: 7, price: 5000,
+    checkoutUrl: 'https://sandbox-api.polar.sh/v1/checkout-links/polar_cl_BjIYztw88Oezzwam5EpCWjgWdAPjajVjZbRRd4Y8H4q/redirect',
+    tags: ['초보 추천', '7일'],
   },
   {
-    id: 'c2', name: '21일 쉼 마스터 챌린지', icon: '✦',
-    desc: '8가지 유형 기법을 모두 경험하고 나만의 루틴 완성',
-    members: 389, duration: 21, price: 9900,
-    tags: ['인기', '보증금 환급'],
+    id: 'c2', name: 'SNS 디톡스 14일', icon: '📱',
+    desc: '14일간 SNS 사용 시간을 줄이고 진짜 쉼을 경험',
+    members: 823, duration: 14, price: 10000,
+    checkoutUrl: 'https://sandbox-api.polar.sh/v1/checkout-links/polar_cl_i1b6LCtcxdvUAKPZDj2JiQxLhpEMVVWxyoHoa3chZ9a/redirect',
+    tags: ['인기', '14일'],
   },
   {
-    id: 'c3', name: '폰 없는 저녁 30일', icon: '📱',
-    desc: '매일 저녁 3시간 폰 격리. 인증샷 필수. 성공하면 환급',
-    members: 562, duration: 30, price: 19900,
-    tags: ['하드코어', '보증금 환급'],
-  },
-  {
-    id: 'c4', name: '같이 요리하기 14일', icon: '🍳',
-    desc: '매일 저녁 직접 해먹고 인증. 레시피 공유 커뮤니티',
-    members: 823, duration: 14, price: 4900,
-    tags: ['요리', '보증금 환급'],
+    id: 'c3', name: '30일 디지털 미니멀리즘', icon: '✦',
+    desc: '한 달간 디지털 습관을 완전히 리셋하는 하드코어 챌린지',
+    members: 389, duration: 30, price: 20000,
+    checkoutUrl: 'https://sandbox-api.polar.sh/v1/checkout-links/polar_cl_m4doCr5eaLQlBb5rKVQzo4uqZ0KFUsMTYPVYc350r9s/redirect',
+    tags: ['하드코어', '30일'],
   },
 ];
 
@@ -177,6 +174,13 @@ export default function Community() {
     const key = `${postId}-${reactionType}`;
     if (postReactions[key]) return;
     setPostReactions(prev => ({ ...prev, [key]: true }));
+  };
+
+  const handlePolarCheckout = (challenge) => {
+    window.open(challenge.checkoutUrl, '_blank');
+    joinChallengeDb(challenge.id);
+    setShowPayment(null);
+    toast('결제 페이지가 열렸습니다');
   };
 
   const joinChallenge = (challengeId) => {
@@ -241,8 +245,8 @@ export default function Community() {
               <strong>{challenge.duration}일</strong>
             </div>
             <div className="challenge-payment-row">
-              <span>참가비 (보증금)</span>
-              <strong>{challenge.price ? `${challenge.price.toLocaleString()}원` : '무료'}</strong>
+              <span>참가비</span>
+              <strong>{challenge.price.toLocaleString()}원</strong>
             </div>
             <div className="challenge-payment-row">
               <span>현재 참가자</span>
@@ -250,19 +254,10 @@ export default function Community() {
             </div>
           </div>
 
-          <div className="challenge-payment-refund">
-            <span className="challenge-refund-icon">💰</span>
-            <div>
-              <p className="challenge-refund-title">보증금 환급 규칙</p>
-              <p className="challenge-refund-desc">85% 이상 인증 완료 시 보증금 100% 환급</p>
-              <p className="challenge-refund-desc">미달성 시 보증금은 완주자에게 분배</p>
-            </div>
-          </div>
-
-          <button className="challenge-pay-btn" onClick={() => joinChallenge(challenge.id)}>
-            {challenge.price ? `${challenge.price.toLocaleString()}원 결제하고 참가` : '무료로 참가하기'}
+          <button className="challenge-pay-btn" onClick={() => handlePolarCheckout(challenge)}>
+            {challenge.price.toLocaleString()}원 결제하고 참가
           </button>
-          <p className="challenge-pay-note">시작 후 24시간 내 취소 가능</p>
+          <p className="challenge-pay-note">결제는 Polar를 통해 안전하게 처리됩니다</p>
         </div>
       </div>
     );
@@ -277,17 +272,19 @@ export default function Community() {
   return (
     <PullToRefresh onRefresh={handleRefresh}>
     <div className="page">
-      <header className="page-header">
+      <header className="page-header-inline">
         <h1>Together</h1>
-        <p className="page-subtitle">같이 쉬면 더 잘 쉬어요</p>
+        <p className="page-subtitle-inline">같이 쉬면 더 잘 쉬어요</p>
       </header>
 
-      <div className="rules-tab-bar">
-        <button className={`rules-tab ${tab === 'feed' ? 'active' : ''}`} onClick={() => setTab('feed')}>
-          인증 피드
+      <div className="manage-tabs">
+        <button className={`manage-tab ${tab === 'feed' ? 'active' : ''}`} onClick={() => setTab('feed')}>
+          <span className="manage-tab-icon">◎</span>
+          <span className="manage-tab-label">인증 피드</span>
         </button>
-        <button className={`rules-tab ${tab === 'challenge' ? 'active' : ''}`} onClick={() => setTab('challenge')}>
-          같이하기
+        <button className={`manage-tab ${tab === 'challenge' ? 'active' : ''}`} onClick={() => setTab('challenge')}>
+          <span className="manage-tab-icon">🤝</span>
+          <span className="manage-tab-label">같이하기</span>
         </button>
       </div>
 
@@ -454,13 +451,13 @@ export default function Community() {
                     <span className="challenge-joined-badge">참가중</span>
                   ) : (
                     <button className="challenge-join-btn" onClick={() => {
-                      if (c.price && !user) {
-                        requireLogin('유료 챌린지 참가를 위해 로그인이 필요합니다');
+                      if (!user) {
+                        requireLogin('챌린지 참가를 위해 로그인이 필요합니다');
                         return;
                       }
-                      c.price ? setShowPayment(c.id) : joinChallenge(c.id);
+                      setShowPayment(c.id);
                     }}>
-                      {c.price ? `${c.price.toLocaleString()}원` : '무료'} 참가
+                      {c.price.toLocaleString()}원 참가
                     </button>
                   )}
                 </div>
@@ -469,12 +466,11 @@ export default function Community() {
           })}
 
           <div className="challenge-info-box">
-            <p className="challenge-info-title">💰 보증금 챌린지란?</p>
+            <p className="challenge-info-title">🤝 같이하기 챌린지</p>
             <p className="challenge-info-desc">
-              참가비를 내고 매일 인증하세요.<br />
-              85% 이상 달성하면 보증금 100% 돌려받고,<br />
-              미달성 보증금은 완주자에게 나눠집니다.<br />
-              <strong>평균 환급액: 참가비의 120~150%</strong>
+              참가비를 내고 함께 도전하세요.<br />
+              매일 인증하며 디지털 습관을 바꿔보세요.<br />
+              <strong>결제는 Polar를 통해 안전하게 처리됩니다.</strong>
             </p>
           </div>
         </div>

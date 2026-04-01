@@ -137,6 +137,7 @@ export default function MyPage() {
   const resetOnboarding = async () => {
     if (!await confirm('온보딩을 다시 시작할까요?')) return;
     await updateProfile({ onboarding_done: false });
+    localStorage.removeItem('onboarding_done');
     window.location.reload();
   };
 
@@ -177,9 +178,9 @@ export default function MyPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
+      <header className="page-header-inline">
         <h1>My Page</h1>
-        <p className="page-subtitle">내 소비 관리 현황</p>
+        <p className="page-subtitle-inline">내 소비 관리 현황</p>
       </header>
 
       {/* Profile */}
@@ -210,18 +211,22 @@ export default function MyPage() {
       </div>
 
       {/* Tab Switcher */}
-      <div className="rules-tab-bar">
-        <button className={`rules-tab ${tab === 'profile' ? 'active' : ''}`} onClick={() => setTab('profile')}>
-          내 현황
+      <div className="manage-tabs">
+        <button className={`manage-tab ${tab === 'profile' ? 'active' : ''}`} onClick={() => setTab('profile')}>
+          <span className="manage-tab-icon">⊙</span>
+          <span className="manage-tab-label">내 현황</span>
         </button>
-        <button className={`rules-tab ${tab === 'report' ? 'active' : ''}`} onClick={() => setTab('report')}>
-          리포트
+        <button className={`manage-tab ${tab === 'report' ? 'active' : ''}`} onClick={() => setTab('report')}>
+          <span className="manage-tab-icon">📊</span>
+          <span className="manage-tab-label">리포트</span>
         </button>
-        <button className={`rules-tab ${tab === 'badges' ? 'active' : ''}`} onClick={() => setTab('badges')}>
-          배지
+        <button className={`manage-tab ${tab === 'badges' ? 'active' : ''}`} onClick={() => setTab('badges')}>
+          <span className="manage-tab-icon">🏅</span>
+          <span className="manage-tab-label">배지</span>
         </button>
-        <button className={`rules-tab ${tab === 'settings' ? 'active' : ''}`} onClick={() => setTab('settings')}>
-          설정
+        <button className={`manage-tab ${tab === 'settings' ? 'active' : ''}`} onClick={() => setTab('settings')}>
+          <span className="manage-tab-icon">⚙</span>
+          <span className="manage-tab-label">설정</span>
         </button>
       </div>
 

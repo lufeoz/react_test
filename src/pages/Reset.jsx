@@ -445,14 +445,10 @@ export default function Reset() {
 
     return (
       <div className="page">
-        <header className="page-header">
-          <div className="page-header-row">
-            <div>
-              <h1>{type.icon} {type.name}</h1>
-              <p className="page-subtitle">{type.problem}</p>
-            </div>
-            <button className="mode-toggle" onClick={() => setPhase('pick')}>유형 변경</button>
-          </div>
+        <header className="page-header-inline">
+          <h1>{type.icon} {type.name}</h1>
+          <p className="page-subtitle-inline">{type.problem}</p>
+          <button className="settings-gear" onClick={() => setPhase('pick')} title="유형 변경">↻</button>
         </header>
 
         <div className="rest-core-message">

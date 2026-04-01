@@ -55,6 +55,15 @@ export function AuthProvider({ children }) {
     if (data.user) {
       await supabase.from('profiles').update({ name }).eq('id', data.user.id);
     }
+
+    // If email confirmation is disabled, signUp returns a session directly.
+    // If not, auto-login with the provided credentials.
+    if (!data.session) {
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      if (signInError) throw signInError;
+      return signInData;
+    }
+
     return data;
   }
 

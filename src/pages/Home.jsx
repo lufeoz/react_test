@@ -1,29 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useToast } from '../components/Toast';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useLoginModal } from '../components/Login';
+import { fetchVideosByChannelName, fetchPlaylistsByChannelName, fetchPlaylistVideos, findChannelId, searchChannels, hasApiKey } from '../lib/youtube';
 
-const SAMPLE_VIDEOS = {
-  '디자인': [
-    { id: 'v1', title: 'Figma for Beginners', channel: 'Figma', videoId: 'FTFaQWZBqQ8', duration: '24:03', uploaded: '2일 전' },
-    { id: 'v2', title: 'UI Design Tutorial', channel: 'Figma', videoId: 'HZuk6Wkx_Eg', duration: '14:21', uploaded: '5일 전' },
-    { id: 'v3', title: 'Design Systems Explained', channel: 'Dribbble Weekly', videoId: 'Dtd40cHQQlk', duration: '10:47', uploaded: '1일 전' },
-  ],
-  '개발': [
-    { id: 'v4', title: 'React in 100 Seconds', channel: 'Fireship', videoId: 'Tn6-PIqc4UM', duration: '2:19', uploaded: '3일 전' },
-    { id: 'v5', title: 'JavaScript Promises', channel: 'Fireship', videoId: 'RvYYCGs45L4', duration: '11:28', uploaded: '1일 전' },
-    { id: 'v6', title: 'CSS in 100 Seconds', channel: 'Fireship', videoId: 'OEV8gMkCHXQ', duration: '2:15', uploaded: '4일 전' },
-  ],
-  '책 & 생각': [
-    { id: 'v7', title: 'The Power of Reading', channel: '책 읽는 밤', videoId: 'Y_Z0YhGBaKI', duration: '15:03', uploaded: '2일 전' },
-    { id: 'v8', title: 'How to Read More Books', channel: '책 읽는 밤', videoId: 'lIW5jBrrsS0', duration: '12:44', uploaded: '6일 전' },
-  ],
-  '친구': [
-    { id: 'v9', title: '주말 브이로그', channel: '민수', videoId: null, duration: '', uploaded: '오늘' },
-    { id: 'v10', title: '카페 추천', channel: '지연', videoId: null, duration: '', uploaded: '어제' },
-  ],
-};
 
 const DEFAULT_FEEDS = [
   {
@@ -62,7 +43,7 @@ const DEFAULT_FEEDS = [
   },
 ];
 
-export default function Home({ embedded = false }) {
+export default function Home({ embedded = false, manageOnly = false }) {
   const toast = useToast();
   const { user } = useAuth();
   const { requireLogin } = useLoginModal();
@@ -71,14 +52,109 @@ export default function Home({ embedded = false }) {
     return load('focusFeeds') || DEFAULT_FEEDS;
   });
   const [activeFeed, setActiveFeed] = useState(null);
-  const [viewMode, setViewMode] = useState('feed'); // 'feed' | 'manage'
   const [playingVideo, setPlayingVideo] = useState(null);
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupIcon, setNewGroupIcon] = useState('📌');
   const [showAddChannel, setShowAddChannel] = useState(null);
   const [newChannelName, setNewChannelName] = useState('');
-  const [newChannelPlatform, setNewChannelPlatform] = useState('YouTube');
+  const [ytVideos, setYtVideos] = useState({});  // { channelName: [videos] }
+  const [ytLoading, setYtLoading] = useState(false);
+  const [playlistPicker, setPlaylistPicker] = useState(null); // { groupId, channelId, channelName, playlists, loading }
+  const [sortOrder, setSortOrder] = useState('newest'); // 'newest' | 'oldest'
+  const [dateRange, setDateRange] = useState(''); // '' | '1w' | '1m' | '3m'
+
+
+  // Fetch YouTube videos for all active YouTube channels
+  const fetchYouTubeVideos = useCallback(async (feedList) => {
+    if (!hasApiKey()) {
+      console.warn('[Feed] API 키 없음');
+      return;
+    }
+
+    const ytChannels = feedList.flatMap(f =>
+      f.channels.filter(c => c.active && c.platform === 'YouTube').map(c => ({
+        name: c.name,
+        playlists: c.playlists || [],
+        group: f.name,
+        groupIcon: f.icon,
+      }))
+    );
+
+    console.log('[Feed] YouTube 채널 목록:', ytChannels.map(c => c.name));
+    if (ytChannels.length === 0) return;
+
+    setYtLoading(true);
+    const results = {};
+    await Promise.all(
+      ytChannels.map(async (ch) => {
+        try {
+          let videos = [];
+          if (ch.playlists.length > 0) {
+            const plVideos = await Promise.all(
+              ch.playlists.map(plId => fetchPlaylistVideos(plId, 5))
+            );
+            videos = plVideos.flat();
+          } else {
+            videos = await fetchVideosByChannelName(ch.name, 5);
+          }
+          console.log(`[Feed] ${ch.name}: ${videos.length}개 영상`);
+          results[ch.name] = videos.map(v => ({
+            ...v,
+            group: ch.group,
+            groupIcon: ch.groupIcon,
+          }));
+        } catch (err) {
+          console.error(`[Feed] ${ch.name} 실패:`, err);
+          results[ch.name] = [];
+        }
+      })
+    );
+    setYtVideos(prev => ({ ...prev, ...results }));
+    setYtLoading(false);
+  }, []);
+
+  // Fetch on mount and when feeds change
+  useEffect(() => {
+    fetchYouTubeVideos(feeds);
+  }, [feeds, fetchYouTubeVideos]);
+
+  // Open playlist picker for a channel
+  const openPlaylistPicker = async (groupId, channel) => {
+    setPlaylistPicker({ groupId, channelId: channel.id, channelName: channel.name, playlists: [], loading: true, selected: channel.playlists || [] });
+    const playlists = await fetchPlaylistsByChannelName(channel.name);
+    setPlaylistPicker(prev => prev ? { ...prev, playlists, loading: false } : null);
+  };
+
+  // Toggle a playlist selection
+  const togglePlaylist = (playlistId) => {
+    setPlaylistPicker(prev => {
+      if (!prev) return null;
+      const selected = prev.selected.includes(playlistId)
+        ? prev.selected.filter(id => id !== playlistId)
+        : [...prev.selected, playlistId];
+      return { ...prev, selected };
+    });
+  };
+
+  // Save selected playlists to the channel
+  const savePlaylistSelection = () => {
+    if (!playlistPicker) return;
+    const { groupId, channelId, selected } = playlistPicker;
+    const updated = feeds.map(f => {
+      if (f.id !== groupId) return f;
+      return {
+        ...f,
+        channels: f.channels.map(c =>
+          c.id === channelId ? { ...c, playlists: selected } : c
+        ),
+      };
+    });
+    saveFeeds(updated);
+    setPlaylistPicker(null);
+    setViewMode('feed');
+    toast(selected.length > 0 ? `재생목록 ${selected.length}개 선택됨` : '전체 최신 영상으로 설정됨');
+  };
 
   const saveFeeds = (updated) => {
     setFeeds(updated);
@@ -106,16 +182,63 @@ export default function Home({ embedded = false }) {
     toast('그룹이 삭제되었습니다');
   };
 
-  const addChannel = (groupId) => {
-    if (!newChannelName.trim()) return;
+  const [addingChannel, setAddingChannel] = useState(false);
+  const [channelSuggestions, setChannelSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchTimerRef = useRef(null);
+
+  const handleChannelInput = (value) => {
+    setNewChannelName(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!value.trim() || !hasApiKey()) {
+      setChannelSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    searchTimerRef.current = setTimeout(async () => {
+      const results = await searchChannels(value.trim());
+      setChannelSuggestions(results);
+      setShowSuggestions(results.length > 0);
+    }, 400);
+  };
+
+  const selectSuggestion = (suggestion) => {
+    setNewChannelName(suggestion.name);
+    setShowSuggestions(false);
+    setChannelSuggestions([]);
+  };
+
+  const addChannel = async (groupId) => {
+    if (!newChannelName.trim() || addingChannel) return;
+    const channelName = newChannelName.trim();
+
+    // Verify channel exists on YouTube
+    if (hasApiKey()) {
+      setAddingChannel(true);
+      try {
+        const channelId = await findChannelId(channelName);
+        if (!channelId) {
+          toast('채널을 찾을 수 없습니다. 이름을 확인해주세요', 'error');
+          setAddingChannel(false);
+          return;
+        }
+      } catch {
+        toast('채널 확인 중 오류가 발생했습니다', 'error');
+        setAddingChannel(false);
+        return;
+      }
+      setAddingChannel(false);
+    }
+
+    const newId = Date.now();
     const updated = feeds.map(f => {
       if (f.id !== groupId) return f;
       return {
         ...f,
         channels: [...f.channels, {
-          id: Date.now(),
-          name: newChannelName.trim(),
-          platform: newChannelPlatform,
+          id: newId,
+          name: channelName,
+          platform: 'YouTube',
           active: true,
         }],
       };
@@ -124,6 +247,11 @@ export default function Home({ embedded = false }) {
     setNewChannelName('');
     setShowAddChannel(null);
     toast('채널이 추가되었습니다');
+
+    // Open playlist picker for the new channel
+    if (hasApiKey()) {
+      openPlaylistPicker(groupId, { id: newId, name: channelName, playlists: [] });
+    }
   };
 
   const toggleChannel = (groupId, channelId) => {
@@ -149,12 +277,38 @@ export default function Home({ embedded = false }) {
 
   // Get videos for current feed selection
   const getVideos = () => {
-    if (activeFeed === null) {
-      return feeds.flatMap(feed => (SAMPLE_VIDEOS[feed.name] || []).map(v => ({ ...v, group: feed.name, groupIcon: feed.icon })));
+    const targetFeeds = activeFeed === null
+      ? feeds
+      : feeds.filter(f => f.id === activeFeed);
+
+    let result = targetFeeds.flatMap(feed =>
+      feed.channels
+        .filter(c => c.active && c.platform === 'YouTube')
+        .flatMap(c => (ytVideos[c.name] || []).map(v => ({
+          ...v,
+          group: feed.name,
+          groupIcon: feed.icon,
+        })))
+    );
+
+    // Date range filter
+    if (dateRange) {
+      const now = new Date();
+      const daysMap = { '1w': 7, '1m': 30, '3m': 90 };
+      const days = daysMap[dateRange] || 0;
+      const cutoff = new Date(now.getTime() - days * 86400000).toISOString();
+      result = result.filter(v => v.publishedAt && v.publishedAt >= cutoff);
     }
-    const feed = feeds.find(f => f.id === activeFeed);
-    if (!feed) return [];
-    return (SAMPLE_VIDEOS[feed.name] || []).map(v => ({ ...v, group: feed.name, groupIcon: feed.icon }));
+
+    // Sort
+    result.sort((a, b) => {
+      if (!a.publishedAt || !b.publishedAt) return 0;
+      return sortOrder === 'newest'
+        ? new Date(b.publishedAt) - new Date(a.publishedAt)
+        : new Date(a.publishedAt) - new Date(b.publishedAt);
+    });
+
+    return result;
   };
 
   const videos = getVideos();
@@ -220,89 +374,10 @@ export default function Home({ embedded = false }) {
     );
   }
 
-  const feedContent = (
+  // Channel management content (used in settings panel)
+  const manageContent = (
     <>
-      <div className="feed-header-row">
-        <button
-          className={`mode-toggle ${viewMode === 'manage' ? 'active' : ''}`}
-          onClick={() => {
-            if (viewMode === 'feed' && !user) {
-              requireLogin('피드를 관리하려면 로그인이 필요합니다');
-              return;
-            }
-            setViewMode(viewMode === 'feed' ? 'manage' : 'feed');
-          }}
-        >
-          {viewMode === 'feed' ? '채널 관리' : '피드 보기'}
-        </button>
-      </div>
-
-      <div className="feed-tabs">
-        <button
-          className={`feed-tab ${activeFeed === null ? 'active' : ''}`}
-          onClick={() => setActiveFeed(null)}
-        >
-          전체
-        </button>
-        {feeds.map(feed => (
-          <button
-            key={feed.id}
-            className={`feed-tab ${activeFeed === feed.id ? 'active' : ''}`}
-            onClick={() => setActiveFeed(feed.id)}
-          >
-            {feed.icon} {feed.name}
-          </button>
-        ))}
-      </div>
-
-      {viewMode === 'feed' ? (
-        /* ===== Feed View: Video List ===== */
-        <div className="video-list">
-          {videos.length === 0 ? (
-            <div className="empty-state">
-              <p className="empty-icon">📭</p>
-              <p className="empty-text">이 피드에 콘텐츠가 없습니다</p>
-              <button className="btn-small" onClick={() => setViewMode('manage')}>채널 추가하기</button>
-            </div>
-          ) : (
-            videos.map(video => (
-              <div
-                key={video.id}
-                className="video-card"
-                onClick={() => setPlayingVideo(video)}
-              >
-                <div className="video-thumbnail">
-                  {video.videoId ? (
-                    <img
-                      src={`https://img.youtube.com/vi/${video.videoId}/mqdefault.jpg`}
-                      alt={video.title}
-                    />
-                  ) : (
-                    <div className="thumb-placeholder">📱</div>
-                  )}
-                  {video.duration && <span className="video-duration">{video.duration}</span>}
-                </div>
-                <div className="video-card-info">
-                  <p className="video-card-title">{video.title}</p>
-                  <div className="video-card-meta">
-                    <span>{video.channel}</span>
-                    <span className="meta-dot">·</span>
-                    <span>{video.uploaded}</span>
-                    {activeFeed === null && (
-                      <>
-                        <span className="meta-dot">·</span>
-                        <span className="video-group-tag">{video.groupIcon} {video.group}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      ) : (
-        /* ===== Manage View: Channel Management ===== */
-        <div className="feed-groups">
+      <div className="feed-groups">
           {feeds.map(feed => (
             <div key={feed.id} className="feed-group-card">
               <div className="feed-group-header">
@@ -323,9 +398,22 @@ export default function Home({ embedded = false }) {
                     <div className="channel-info" onClick={() => toggleChannel(feed.id, ch.id)}>
                       <span className={`channel-dot ${ch.active ? 'on' : 'off'}`} />
                       <span className="channel-name">{ch.name}</span>
-                      <span className="channel-platform">{ch.platform}</span>
+                      {ch.playlists?.length > 0 && (
+                        <span className="channel-playlist-badge">{ch.playlists.length}개 목록만</span>
+                      )}
                     </div>
-                    <button className="btn-remove" onClick={() => removeChannel(feed.id, ch.id)}>×</button>
+                    <div className="channel-actions">
+                      {hasApiKey() && (
+                        <button
+                          className="btn-playlist"
+                          onClick={(e) => { e.stopPropagation(); openPlaylistPicker(feed.id, ch); }}
+                          title="재생목록 필터"
+                        >
+                          필터
+                        </button>
+                      )}
+                      <button className="btn-remove" onClick={() => removeChannel(feed.id, ch.id)}>×</button>
+                    </div>
                   </div>
                 ))}
                 {feed.channels.length === 0 && (
@@ -333,23 +421,40 @@ export default function Home({ embedded = false }) {
                 )}
               </div>
               {showAddChannel === feed.id && (
-                <div className="add-form inline-form">
-                  <input
-                    type="text"
-                    placeholder="채널 이름"
-                    value={newChannelName}
-                    onChange={e => setNewChannelName(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && addChannel(feed.id)}
-                  />
-                  <select value={newChannelPlatform} onChange={e => setNewChannelPlatform(e.target.value)}>
-                    <option>YouTube</option>
-                    <option>Instagram</option>
-                    <option>Twitter</option>
-                    <option>Newsletter</option>
-                    <option>Blog</option>
-                    <option>Podcast</option>
-                  </select>
-                  <button className="btn-small" onClick={() => addChannel(feed.id)}>추가</button>
+                <div className="add-channel-wrapper">
+                  <div className="add-channel-simple">
+                    <input
+                      type="text"
+                      placeholder="YouTube 채널명 입력"
+                      value={newChannelName}
+                      onChange={e => handleChannelInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && addChannel(feed.id)}
+                      onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                      onFocus={() => channelSuggestions.length > 0 && setShowSuggestions(true)}
+                      disabled={addingChannel}
+                      autoFocus
+                    />
+                    <button className="btn-small" onClick={() => addChannel(feed.id)} disabled={addingChannel}>
+                      {addingChannel ? '확인 중...' : '추가'}
+                    </button>
+                  </div>
+                  {showSuggestions && (
+                    <div className="channel-suggestions">
+                      {channelSuggestions.map(ch => (
+                        <button
+                          key={ch.id}
+                          className="channel-suggestion"
+                          onMouseDown={() => selectSuggestion(ch)}
+                        >
+                          <img src={ch.thumbnail} alt="" className="suggestion-thumb" />
+                          <div className="suggestion-info">
+                            <span className="suggestion-name">{ch.name}</span>
+                            {ch.description && <span className="suggestion-desc">{ch.description}</span>}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -393,20 +498,158 @@ export default function Home({ embedded = false }) {
           )}
         </div>
       )}
+
+      {/* Playlist Picker Modal */}
+      {playlistPicker && (
+        <div className="login-modal-overlay" onClick={() => setPlaylistPicker(null)}>
+          <div className="login-modal playlist-modal" onClick={e => e.stopPropagation()}>
+            <button className="login-modal-close" onClick={() => setPlaylistPicker(null)}>×</button>
+            <h2 className="login-title">재생목록 선택</h2>
+            <p className="login-reason">{playlistPicker.channelName}에서 가져올 재생목록을 선택하세요</p>
+
+            {playlistPicker.loading ? (
+              <div className="empty-state">
+                <p className="empty-icon">⏳</p>
+                <p className="empty-text">재생목록 불러오는 중...</p>
+              </div>
+            ) : playlistPicker.playlists.length === 0 ? (
+              <div className="empty-state">
+                <p className="empty-icon">📭</p>
+                <p className="empty-text">재생목록이 없습니다</p>
+              </div>
+            ) : (
+              <div className="playlist-list">
+                {playlistPicker.playlists.map(pl => (
+                  <label key={pl.id} className={`playlist-item ${playlistPicker.selected.includes(pl.id) ? 'selected' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={playlistPicker.selected.includes(pl.id)}
+                      onChange={() => togglePlaylist(pl.id)}
+                    />
+                    {pl.thumbnail && <img src={pl.thumbnail} alt="" className="playlist-thumb" />}
+                    <span className="playlist-title">{pl.title}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <div className="playlist-actions">
+              <button className="login-btn" onClick={savePlaylistSelection}>
+                {playlistPicker.selected.length > 0
+                  ? `${playlistPicker.selected.length}개 선택 완료`
+                  : '선택 완료'}
+              </button>
+              <button className="playlist-skip" onClick={() => { setPlaylistPicker(null); toast('전체 최신 영상으로 설정됨'); }}>
+                건너뛰기 — 전체 영상 보기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 
+  // Feed content (main view)
+  const feedContent = (
+    <>
+      <div className="feed-toolbar">
+        <div className="feed-tabs">
+          <button
+            className={`feed-tab ${activeFeed === null ? 'active' : ''}`}
+            onClick={() => setActiveFeed(null)}
+          >
+            전체
+          </button>
+          {feeds.map(feed => (
+            <button
+              key={feed.id}
+              className={`feed-tab ${activeFeed === feed.id ? 'active' : ''}`}
+              onClick={() => setActiveFeed(feed.id)}
+            >
+              {feed.icon} {feed.name}
+            </button>
+          ))}
+        </div>
+        <div className="feed-filter-row">
+          <select
+            className="feed-select"
+            value={dateRange}
+            onChange={e => setDateRange(e.target.value)}
+          >
+            <option value="">전체 기간</option>
+            <option value="1w">최근 1주일</option>
+            <option value="1m">최근 1개월</option>
+            <option value="3m">최근 3개월</option>
+          </select>
+          <select
+            className="feed-select"
+            value={sortOrder}
+            onChange={e => setSortOrder(e.target.value)}
+          >
+            <option value="newest">최신순</option>
+            <option value="oldest">오래된순</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="video-list">
+        {videos.length === 0 && ytLoading ? (
+          <div className="empty-state">
+            <p className="empty-icon">⏳</p>
+            <p className="empty-text">영상을 불러오는 중...</p>
+          </div>
+        ) : videos.length === 0 ? (
+          <div className="empty-state">
+            <p className="empty-icon">📭</p>
+            <p className="empty-text">{hasApiKey() ? '이 피드에 콘텐츠가 없습니다' : 'YouTube API 키를 설정해주세요'}</p>
+          </div>
+        ) : (
+          videos.map(video => (
+            <div
+              key={video.id}
+              className="video-card"
+              onClick={() => setPlayingVideo(video)}
+            >
+              <div className="video-thumbnail">
+                {video.videoId ? (
+                  <img
+                    src={`https://img.youtube.com/vi/${video.videoId}/mqdefault.jpg`}
+                    alt={video.title}
+                  />
+                ) : (
+                  <div className="thumb-placeholder">📱</div>
+                )}
+                {video.duration && <span className="video-duration">{video.duration}</span>}
+              </div>
+              <div className="video-card-info">
+                <p className="video-card-title">{video.title}</p>
+                <div className="video-card-meta">
+                  <span>{video.channel}</span>
+                  <span className="meta-dot">·</span>
+                  <span>{video.uploaded}</span>
+                  {activeFeed === null && (
+                    <>
+                      <span className="meta-dot">·</span>
+                      <span className="video-group-tag">{video.groupIcon} {video.group}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </>
+  );
+
+  if (manageOnly) return manageContent;
   if (embedded) return feedContent;
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-row">
-          <div>
-            <h1>Focus Feed</h1>
-            <p className="page-subtitle">내가 선택한 콘텐츠만</p>
-          </div>
-        </div>
+      <header className="page-header-inline">
+        <h1>Focus Feed</h1>
+        <p className="page-subtitle-inline">내가 선택한 콘텐츠만</p>
       </header>
 
       <div className="today-summary">

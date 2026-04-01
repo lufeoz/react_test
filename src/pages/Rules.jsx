@@ -5,9 +5,7 @@ import { useConfirm } from '../components/Confirm';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useLoginModal } from '../components/Login';
-import Filter from './Filter';
 
-// === Rules Data ===
 const DEFAULT_RULES = [
   { id: 1, icon: '▶', category: 'YouTube', limit: 30, unit: 'min', enabled: true, timeSlot: 'evening', timeLabel: '저녁' },
   { id: 2, icon: '💬', category: 'SNS', limit: 20, unit: 'min', enabled: true, timeSlot: 'free', timeLabel: '자유' },
@@ -23,24 +21,13 @@ const TIME_SLOTS = [
 
 const ICON_OPTIONS = ['▶', '💬', '📰', '📱', '🎮', '🐦', '📸', '🎵', '📌'];
 
-// === Time Container Data ===
-const DEFAULT_CONTAINERS = [
-  { id: 1, name: 'Morning', icon: '🌅', items: [{ label: '뉴스', minutes: 10 }], active: false },
-  { id: 2, name: 'Evening', icon: '🌙', items: [{ label: '유튜브', minutes: 20 }, { label: 'SNS', minutes: 10 }], active: false },
-  { id: 3, name: 'Weekend', icon: '☀️', items: [{ label: '자유 시간', minutes: 60 }], active: false },
-];
-
-const CONTAINER_ICONS = ['⏰', '🌅', '🌙', '☀️', '🍽', '🏠'];
-
 export default function Rules({ embedded = false }) {
   const toast = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
   const { requireLogin } = useLoginModal();
   const { load, save } = useData();
-  const [tab, setTab] = useState('rules');
 
-  // === Rules State ===
   const [rules, setRules] = useState(() => {
     return load('consumptionRules') || DEFAULT_RULES;
   });
@@ -50,17 +37,6 @@ export default function Rules({ embedded = false }) {
   const [ruleRemaining, setRuleRemaining] = useState(0);
   const ruleIntervalRef = useRef(null);
 
-  // === Container State ===
-  const [containers, setContainers] = useState(() => {
-    return load('timeContainers') || DEFAULT_CONTAINERS;
-  });
-  const [activeContainerTimer, setActiveContainerTimer] = useState(null);
-  const [containerRemaining, setContainerRemaining] = useState(0);
-  const [showAddContainer, setShowAddContainer] = useState(false);
-  const [newContainer, setNewContainer] = useState({ name: '', icon: '⏰', minutes: 30 });
-  const containerIntervalRef = useRef(null);
-
-  // === Rules Logic ===
   const saveRules = (updated) => { setRules(updated); save('consumptionRules', updated); };
   const toggleRule = (id) => saveRules(rules.map(r => r.id === id ? { ...r, enabled: !r.enabled } : r));
   const updateLimit = (id, delta) => saveRules(rules.map(r => r.id !== id ? r : { ...r, limit: Math.max(0, r.limit + delta) }));
@@ -93,37 +69,8 @@ export default function Rules({ embedded = false }) {
     }
   }, [activeRuleTimer, ruleRemaining > 0]);
 
-  // === Container Logic ===
-  const saveContainers = (updated) => { setContainers(updated); save('timeContainers', updated); };
-  const removeContainer = (id) => saveContainers(containers.filter(c => c.id !== id));
-  const startContainerTimer = (container) => {
-    const totalMinutes = container.items.reduce((sum, i) => sum + i.minutes, 0);
-    setActiveContainerTimer(container);
-    setContainerRemaining(totalMinutes * 60);
-  };
-  const stopContainerTimer = () => { setActiveContainerTimer(null); setContainerRemaining(0); if (containerIntervalRef.current) clearInterval(containerIntervalRef.current); };
-  const addContainer = () => {
-    if (!newContainer.name.trim()) return;
-    saveContainers([...containers, { id: Date.now(), name: newContainer.name.trim(), icon: newContainer.icon, items: [{ label: '콘텐츠', minutes: newContainer.minutes }], active: false }]);
-    setNewContainer({ name: '', icon: '⏰', minutes: 30 });
-    setShowAddContainer(false);
-  };
-
-  useEffect(() => {
-    if (activeContainerTimer && containerRemaining > 0) {
-      containerIntervalRef.current = setInterval(() => {
-        setContainerRemaining(prev => { if (prev <= 1) { clearInterval(containerIntervalRef.current); setActiveContainerTimer(null); return 0; } return prev - 1; });
-      }, 1000);
-      return () => clearInterval(containerIntervalRef.current);
-    }
-  }, [activeContainerTimer, containerRemaining > 0]);
-
-  // === Shared Helpers ===
   const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-
   const ruleProgress = activeRuleTimer ? ((activeRuleTimer.limit * 60 - ruleRemaining) / (activeRuleTimer.limit * 60)) * 100 : 0;
-  const containerTotalSec = activeContainerTimer ? activeContainerTimer.items.reduce((s, i) => s + i.minutes, 0) * 60 : 1;
-  const containerProgress = activeContainerTimer ? ((containerTotalSec - containerRemaining) / containerTotalSec) * 100 : 0;
 
   const grouped = TIME_SLOTS.map(slot => ({
     ...slot,
@@ -133,22 +80,6 @@ export default function Rules({ embedded = false }) {
 
   const rulesContent = (
     <>
-      {/* Tab Switcher */}
-      <div className="rules-tab-bar">
-        <button className={`rules-tab ${tab === 'rules' ? 'active' : ''}`} onClick={() => setTab('rules')}>
-          규칙
-        </button>
-        <button className={`rules-tab ${tab === 'time' ? 'active' : ''}`} onClick={() => setTab('time')}>
-          시간
-        </button>
-        <button className={`rules-tab ${tab === 'filter' ? 'active' : ''}`} onClick={() => setTab('filter')}>
-          필터
-        </button>
-      </div>
-
-      {/* ===== RULES TAB ===== */}
-      {tab === 'rules' && (
-        <>
           {activeRuleTimer && (
             <div className="rule-timer">
               <div className="rule-timer-ring">
@@ -285,97 +216,6 @@ export default function Rules({ embedded = false }) {
               setShowAddRule(true);
             }}>+ 새 규칙 만들기</button>
           )}
-        </>
-      )}
-
-      {/* ===== TIME CONTAINER TAB ===== */}
-      {tab === 'time' && (
-        <>
-          {activeContainerTimer && (
-            <div className="timer-active">
-              <div className="timer-ring">
-                <svg viewBox="0 0 120 120" className="timer-svg">
-                  <circle cx="60" cy="60" r="54" className="timer-track" />
-                  <circle cx="60" cy="60" r="54" className="timer-progress"
-                    strokeDasharray={`${2 * Math.PI * 54}`}
-                    strokeDashoffset={`${2 * Math.PI * 54 * (1 - containerProgress / 100)}`}
-                  />
-                </svg>
-                <div className="timer-center">
-                  <span className="timer-time">{fmt(containerRemaining)}</span>
-                  <span className="timer-label">{activeContainerTimer.icon} {activeContainerTimer.name}</span>
-                </div>
-              </div>
-              <button className="btn-stop" onClick={stopContainerTimer}>중지</button>
-            </div>
-          )}
-
-          <div className="container-list">
-            {containers.map(container => {
-              const totalMin = container.items.reduce((s, i) => s + i.minutes, 0);
-              return (
-                <div key={container.id} className="container-card">
-                  <div className="container-header">
-                    <div className="container-title">
-                      <span>{container.icon}</span>
-                      <span>{container.name}</span>
-                      <span className="container-total">{totalMin}분</span>
-                    </div>
-                    <div className="container-actions">
-                      {!activeContainerTimer && (
-                        <button className="btn-start" onClick={() => startContainerTimer(container)}>시작</button>
-                      )}
-                      <button className="btn-remove" onClick={() => removeContainer(container.id)}>×</button>
-                    </div>
-                  </div>
-                  <div className="container-items">
-                    {container.items.map((item, i) => (
-                      <div key={i} className="container-item">
-                        <span>{item.label}</span>
-                        <span className="item-minutes">{item.minutes}분</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {showAddContainer ? (
-            <div className="rule-card add-rule-card">
-              <div className="add-form">
-                <div className="add-form-row">
-                  <select value={newContainer.icon} onChange={e => setNewContainer({ ...newContainer, icon: e.target.value })} className="icon-select">
-                    {CONTAINER_ICONS.map(ic => <option key={ic}>{ic}</option>)}
-                  </select>
-                  <input type="text" placeholder="컨테이너 이름 (예: Lunch)" value={newContainer.name}
-                    onChange={e => setNewContainer({ ...newContainer, name: e.target.value })}
-                    onKeyDown={e => e.key === 'Enter' && addContainer()} autoFocus
-                  />
-                </div>
-                <div className="add-form-row">
-                  <input type="number" value={newContainer.minutes}
-                    onChange={e => setNewContainer({ ...newContainer, minutes: parseInt(e.target.value, 10) || 0 })}
-                    min="1" className="limit-input" />
-                  <span className="unit-label">분</span>
-                </div>
-                <div className="add-form-actions">
-                  <button className="btn-small" onClick={addContainer}>만들기</button>
-                  <button className="btn-small btn-ghost" onClick={() => setShowAddContainer(false)}>취소</button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <button className="add-group-btn" onClick={() => {
-              if (!user) { requireLogin('타이머를 만들려면 로그인이 필요합니다'); return; }
-              setShowAddContainer(true);
-            }}>+ 새 컨테이너 만들기</button>
-          )}
-        </>
-      )}
-
-      {/* ===== FILTER TAB ===== */}
-      {tab === 'filter' && <Filter embedded />}
     </>
   );
 

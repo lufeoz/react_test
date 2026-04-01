@@ -77,8 +77,6 @@ function LoginModal({ reason, onClose, onSuccess }) {
     setLoading(true);
     try {
       await signUp(email, password, name.trim());
-      // Auto login after signup
-      await signIn(email, password);
       onSuccess();
     } catch (err) {
       if (err.message?.includes('already registered')) {
